@@ -32,5 +32,5 @@ export function rankActions(p: Position): Action[] {
 }
 
 export function fmt(price: number): string {
-  return price >= 1000 ? Math.round(price).toLocaleString('en-US') : price >= 100 ? price.toFixed(1) : price.toFixed(3)
+  return price >= 1000 ? Math.round(price).toLocaleString('en-US') : price >= 100 ? price.toFixed(1) : String(Number(price.toFixed(3)))
 }
