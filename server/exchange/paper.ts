@@ -1,0 +1,82 @@
+import { type Exchange, type Position, type Side, estimateLiq, pnlOf } from './types'
+
+export type PriceFeed = (symbols: string[]) => Promise<Record<string, number>>
+
+interface PaperPos { symbol: string; side: Side; size: number; entry: number; leverage: number; sl?: number; tp?: number }
+
+// Entry offsets from the first live mark, so the demo always opens with a winner, a loser and a tight one.
+const SEED: Array<Omit<PaperPos, 'entry'> & { offset: number }> = [
+  { symbol: 'BTCUSDT', side: 'Buy', size: 0.05, leverage: 10, offset: -0.025 },
+  { symbol: 'ETHUSDT', side: 'Sell', size: 1.2, leverage: 5, offset: 0.015 },
+  { symbol: 'SOLUSDT', side: 'Buy', size: 30, leverage: 12, offset: 0.004 },
+]
+
+/** Simulated perp account priced off live Bybit marks. Keys not needed. */
+export class PaperExchange implements Exchange {
+  readonly name = 'paper'
+  private book: PaperPos[] | null = null
+  /** Demo-only nudge (fraction) applied on top of the live price, per symbol. */
+  readonly drift: Record<string, number> = {}
+
+  constructor(private feed: PriceFeed) {}
+
+  private async marks(): Promise<Record<string, number>> {
+    const raw = await this.feed(SEED.map(s => s.symbol))
+    return Object.fromEntries(Object.entries(raw).map(([s, p]) => [s, p * (1 + (this.drift[s] ?? 0))]))
+  }
+
+  private async ensureBook(marks: Record<string, number>) {
+    if (!this.book) this.book = SEED.map(({ offset, ...s }) => ({ ...s, entry: marks[s.symbol] * (1 + offset) }))
+    return this.book
+  }
+
+  async positions(): Promise<Position[]> {
+    const marks = await this.marks()
+    const book = await this.ensureBook(marks)
+    return book.map(p => {
+      const mark = marks[p.symbol]
+      const upnl = pnlOf(p.side, p.size, p.entry, mark)
+      const margin = (p.entry * p.size) / p.leverage
+      return { ...p, mark, liq: estimateLiq(p.side, p.entry, p.leverage), upnl, upnlPct: (upnl / margin) * 100 }
+    })
+  }
+
+  private find(symbol: string): PaperPos {
+    const p = this.book?.find(b => b.symbol === symbol)
+    if (!p) throw new Error(`No open ${symbol.replace('USDT', '')} position`)
+    return p
+  }
+
+  async close(symbol: string, fraction: number): Promise<number> {
+    const marks = await this.marks()
+    await this.ensureBook(marks)
+    const p = this.find(symbol)
+    const f = Math.min(1, Math.max(0, fraction))
+    const qty = p.size * f
+    const realised = pnlOf(p.side, qty, p.entry, marks[symbol])
+    p.size -= qty
+    if (f >= 1 || p.size <= 1e-12) this.book = this.book!.filter(b => b !== p)
+    return realised
+  }
+
+  async setStop(symbol: string, price: number) {
+    await this.ensureBook(await this.marks())
+    this.find(symbol).sl = price
+  }
+
+  async setTakeProfit(symbol: string, price: number) {
+    await this.ensureBook(await this.marks())
+    this.find(symbol).tp = price
+  }
+}
+
+/** Live mark prices from Bybit's public v5 API (no key). */
+export const bybitMarks: PriceFeed = async symbols => {
+  const r = await fetch('https://api.bybit.com/v5/market/tickers?category=linear')
+  if (!r.ok) throw new Error(`Bybit tickers HTTP ${r.status}`)
+  const j = (await r.json()) as { result: { list: Array<{ symbol: string; markPrice: string }> } }
+  const want = new Set(symbols)
+  const out: Record<string, number> = {}
+  for (const t of j.result.list) if (want.has(t.symbol)) out[t.symbol] = Number(t.markPrice)
+  return out
+}

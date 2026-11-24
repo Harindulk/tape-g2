@@ -1,0 +1,13 @@
+{
+  "package_id": "dev.harindu.tape",
+  "edition": "202601",
+  "name": "Tape",
+  "version": "0.1.0",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [
+    { "name": "network", "desc": "Talks to the Tape server, which reads your Bybit testnet positions and turns voice into commands.", "whitelist": ["http://localhost:8787"] },
+    { "name": "g2-microphone", "desc": "Hold to speak a short command like \"close half of ETH\"." }
+  ],
+  "supported_languages": ["en"]
+}
