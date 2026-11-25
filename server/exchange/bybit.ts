@@ -26,9 +26,15 @@ export class BybitExchange implements Exchange {
   private steps: Record<string, number> = {}
   constructor(private key: string, private secret: string) {}
 
-  private async call<T>(method: 'GET' | 'POST', path: string, params: Record<string, string | boolean>): Promise<T> {
+  /** Read-only: USDT wallet equity, for the setup check. */
+  async equity(): Promise<number> {
+    const r = await this.call<{ list: Array<{ totalEquity: string }> }>('GET', '/v5/account/wallet-balance', { accountType: 'UNIFIED' })
+    return Number(r.list[0]?.totalEquity ?? 0)
+  }
+
+  private async call<T>(method: 'GET' | 'POST', path: string, params: Record<string, string | number | boolean>): Promise<T> {
     const ts = String(Date.now())
-    const query = method === 'GET' ? new URLSearchParams(params as Record<string, string>).toString() : ''
+    const query = method === 'GET' ? new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() : ''
     const body = method === 'POST' ? JSON.stringify(params) : ''
     const r = await fetch(`${BASE}${path}${query ? '?' + query : ''}`, {
       method,
@@ -40,7 +46,10 @@ export class BybitExchange implements Exchange {
       body: body || undefined,
       signal: AbortSignal.timeout(8000),
     })
-    const j = (await r.json()) as { retCode: number; retMsg: string; result: T }
+    const text = await r.text()
+    if (r.status === 401) throw new Error('Bybit: key rejected (401). Is it a testnet key with Contracts permission?')
+    let j: { retCode: number; retMsg: string; result: T }
+    try { j = JSON.parse(text) } catch { throw new Error(`Bybit: HTTP ${r.status}`) }
     if (j.retCode !== 0) throw new Error(`Bybit: ${j.retMsg}`)
     return j.result
   }
@@ -81,16 +90,16 @@ export class BybitExchange implements Exchange {
     const qty = f >= 1 ? String(p.size) : roundQty(p.size * f, await this.step(symbol))
     if (Number(qty) <= 0) throw new Error('Position too small to split')
     await this.call('POST', '/v5/order/create', {
-      category: 'linear', symbol, side: p.side === 'Buy' ? 'Sell' : 'Buy', orderType: 'Market', qty, reduceOnly: true, positionIdx: '0',
-    } as unknown as Record<string, string>)
+      category: 'linear', symbol, side: p.side === 'Buy' ? 'Sell' : 'Buy', orderType: 'Market', qty, reduceOnly: true, positionIdx: 0,
+    })
     return (p.upnl * Number(qty)) / p.size // estimate at last mark; fills may differ slightly
   }
 
   async setStop(symbol: string, price: number) {
-    await this.call('POST', '/v5/position/trading-stop', { category: 'linear', symbol, stopLoss: String(price), tpslMode: 'Full', positionIdx: '0' } as unknown as Record<string, string>)
+    await this.call('POST', '/v5/position/trading-stop', { category: 'linear', symbol, stopLoss: String(price), tpslMode: 'Full', positionIdx: 0 })
   }
 
   async setTakeProfit(symbol: string, price: number) {
-    await this.call('POST', '/v5/position/trading-stop', { category: 'linear', symbol, takeProfit: String(price), tpslMode: 'Full', positionIdx: '0' } as unknown as Record<string, string>)
+    await this.call('POST', '/v5/position/trading-stop', { category: 'linear', symbol, takeProfit: String(price), tpslMode: 'Full', positionIdx: 0 })
   }
 }

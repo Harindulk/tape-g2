@@ -95,6 +95,8 @@ async function refresh() {
       if (state.triggered.length) return go({ kind: 'alert', alert: state.triggered[0] })
       if (risky) return go({ kind: 'risk', symbol: risky })
     }
+    // The danger passed (price recovered, position closed): leave the warning.
+    if (view.kind === 'risk' && state.risk !== view.symbol) back()
     // Forget the warning once that position is out of the danger zone.
     for (const s of seenRisk.keys()) if (state.risk !== s) seenRisk.delete(s)
   } catch (e) {

@@ -34,11 +34,13 @@ Tape puts the answer in your line of sight and keeps the common actions to one o
 
 Every order is reduce-only. Tape can shrink or protect a position but it can never open one or add to one.
 
-| Actions | Risk warning | Done |
-|---|---|---|
-| ![Actions](docs/actions.png) | ![Risk](docs/risk.png) | ![Result](docs/result.png) |
+| Tap, tap | Risk warning | Voice | Alert |
+|---|---|---|---|
+| ![Tap to act](docs/tap.gif) | ![Risk warning](docs/risk.gif) | ![Voice command](docs/voice.gif) | ![Price alert](docs/alert.gif) |
 
-The phone screen (inside the Even Realities app) mirrors the glasses and lists every position. You can type commands there too, and in paper mode it has buttons to move the market so you can see the risk warning fire.
+All four are real frames from the Even Hub simulator.
+
+The phone screen (inside the Even Realities app) mirrors the glasses and lists every position. You can type commands there too. In paper mode it also has buttons that move the market and reset the account, so you can watch the risk warning fire, or push a position all the way to liquidation.
 
 <img src="docs/phone.png" alt="Phone companion screen" width="420">
 
@@ -60,6 +62,19 @@ Even Realities app (WebView)  ── fetch ──▶   ├─ /api/voice   PCM �
 - Command parsing is rule-based (`server/parse.ts`). If it can't tell which coin or how much, it shows what's missing ("Which coin?") and does nothing. If you set `ANTHROPIC_API_KEY`, Claude rewrites loose phrasing into one of the allowed commands, and that result still goes through the same rule parser and your tap to confirm.
 - Exchange (`server/exchange/`): `bybit.ts` signs v5 requests for the testnet; `paper.ts` keeps a simulated book priced off Bybit's public mainnet tickers.
 - API keys live only in `server/.env` on your machine. Nothing secret is in the web app.
+
+### How it uses the Even Hub SDK
+
+| SDK call | What Tape does with it |
+|---|---|
+| `createStartUpPageContainer` / `rebuildPageContainer` | Two layouts: the position card (3 text containers and 1 image) and a bordered full-screen text for actions, confirms, warnings and results. The page is rebuilt only when the layout changes. |
+| `textContainerUpgrade` | Live prices and P&L update in place every 2 s, and only for the text that changed, so the display never flickers. |
+| `updateImageRawData` | The 30-minute chart is drawn on a canvas and sent as a 288x144 PNG. Sends are queued one at a time. |
+| `onEvenHubEvent` | Tap, double tap, swipe and long press from the glasses and the R1 ring. A tap arrives with no event type, and Tape handles that case. |
+| `audioControl` | Hold to talk: the glasses mic streams 16 kHz PCM while you hold, and it goes to the server when you let go. |
+| `shutDownPageContainer(1)` | Double tap on the main card opens the system exit dialog, as the Even Hub review rules require. |
+
+Screens use only glyphs the G2 font can draw and stay inside its limits: at most 4 containers on a page, 10 lines, and well under the text length cap. A test checks every screen's length, line count and glyphs.
 
 ## Run it
 
@@ -92,8 +107,11 @@ cat > server/.env <<'ENV'
 BYBIT_TESTNET_KEY=...
 BYBIT_TESTNET_SECRET=...
 ENV
-npm run server
+npm run bybit:check     # read-only: prints your testnet equity and open positions
+npm run server          # now trades on Bybit testnet instead of paper
 ```
+
+Positions must be in one-way mode (Bybit's default).
 
 ### On real G2 glasses
 
@@ -101,7 +119,7 @@ Run the server on a machine your phone can reach, build the app with `VITE_TAPE_
 
 ### Tests
 
-`npm test` (parser, playbook, paper exchange, Bybit signing, server routes, glasses screen limits).
+`npm test` runs 40 tests: parser, playbook, paper exchange and liquidation, Bybit signing, server routes and input validation, and the glasses screen limits.
 
 ## Safety
 

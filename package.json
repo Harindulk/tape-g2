@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "simulate": "evenhub-simulator --automation-port 9898 http://localhost:5173",
-    "pack": "npm run build && evenhub pack app.json dist -o tape.ehpk"
+    "pack": "npm run build && evenhub pack app.json dist -o tape.ehpk",
+    "bybit:check": "tsx scripts/bybit-check.ts"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16"
