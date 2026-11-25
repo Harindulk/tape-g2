@@ -1,4 +1,4 @@
-import { waitForEvenAppBridge, OsEventTypeList, AudioInputSource, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
+import { waitForEvenAppBridge, OsEventTypeList, AudioInputSource, type EvenHubEvent, type EvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { api } from './api'
 import type { State, Command, Alert } from './types'
 import { Display } from './glass/display'
@@ -28,11 +28,18 @@ let view: View = { kind: 'card' }
 let resultTimer = 0
 const dismissedRisk = new Set<string>()
 
-mountPhone({ onCommandText: text => runText(text), onNudge: (s, p) => api.nudge(s, p).then(refresh) })
+mountPhone({
+  onCommandText: text => runText(text),
+  onNudge: (s, p) => api.nudge(s, p).then(refresh),
+  onSelect: i => { idx = i; phone.select(i); if (view.kind === 'card') render(); else back() },
+})
 
-const bridge = await waitForEvenAppBridge()
-const display = new Display(bridge)
-display.onShow = s => phone.mirror(s)
+// Outside the Even app (plain browser) the bridge never arrives: the phone view still works.
+let bridge: EvenAppBridge | null = null
+let display: { show: (s: S.Screen, png?: () => Promise<Uint8Array | null>) => unknown; invalidate(): void } = {
+  show: s => phone.mirror(s, s.layout === 'card' ? current() ?? undefined : undefined),
+  invalidate() {},
+}
 
 const current = () => (state?.positions.length ? state.positions[Math.min(idx, state.positions.length - 1)] : null)
 
@@ -118,14 +125,14 @@ async function startListening() {
   if (listening) return
   listening = true; chunks = []
   go({ kind: 'listening' })
-  await bridge.audioControl(true, AudioInputSource.Glasses)
+  await bridge?.audioControl(true, AudioInputSource.Glasses)
   listenTimer = window.setTimeout(stopListening, MAX_LISTEN_MS)
 }
 
 async function stopListening() {
   if (!listening) return
   listening = false; clearTimeout(listenTimer)
-  await bridge.audioControl(false)
+  await bridge?.audioControl(false)
   const pcm = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
   let o = 0
   for (const c of chunks) { pcm.set(c, o); o += c.length }
@@ -142,7 +149,7 @@ function onEvent(e: EvenHubEvent) {
   const t = typeOf(e.textEvent) ?? typeOf(e.sysEvent) ?? typeOf(e.listEvent)
   if (t === null) return
   const E = OsEventTypeList
-  if (t === E.SYSTEM_EXIT_EVENT || t === E.ABNORMAL_EXIT_EVENT) { bridge.audioControl(false); return }
+  if (t === E.SYSTEM_EXIT_EVENT || t === E.ABNORMAL_EXIT_EVENT) { bridge?.audioControl(false); return }
   if (t === E.FOREGROUND_ENTER_EVENT) { display.invalidate(); render(); return }
   if (t === E.LONG_PRESS_EVENT) { if (['card', 'risk', 'result'].includes(view.kind)) startListening(); return }
   if (t === E.LONG_PRESS_RELEASE_EVENT) { stopListening(); return }
@@ -152,8 +159,8 @@ function onEvent(e: EvenHubEvent) {
     return swipe(t === E.SCROLL_BOTTOM_EVENT ? 1 : -1)
   }
   if (t === E.DOUBLE_CLICK_EVENT) {
-    if (view.kind === 'card') return void bridge.shutDownPageContainer(1) // root: system exit dialog
-    if (view.kind === 'listening') { listening = false; bridge.audioControl(false) }
+    if (view.kind === 'card') return void bridge?.shutDownPageContainer(1) // root: system exit dialog
+    if (view.kind === 'listening') { listening = false; bridge?.audioControl(false) }
     if (view.kind === 'risk') dismissedRisk.add(view.symbol)
     return back()
   }
@@ -162,7 +169,7 @@ function onEvent(e: EvenHubEvent) {
 
 function swipe(dir: 1 | -1) {
   const n = state?.positions.length ?? 0
-  if (view.kind === 'card' && n) { idx = (idx + dir + n) % n; render() }
+  if (view.kind === 'card' && n) { idx = (idx + dir + n) % n; phone.select(idx); render() }
   else if (view.kind === 'actions') { const len = current()?.actions.length ?? 1; go({ kind: 'actions', sel: (view.sel + dir + len) % len }) }
   else if (view.kind === 'risk') { dismissedRisk.add(view.symbol); back() }
 }
@@ -183,7 +190,15 @@ function tap() {
   }
 }
 
-bridge.onEvenHubEvent(onEvent)
 render()
-await refresh()
+refresh()
 setInterval(refresh, POLL_MS)
+
+waitForEvenAppBridge().then(b => {
+  bridge = b
+  const d = new Display(b)
+  d.onShow = s => phone.mirror(s, s.layout === 'card' ? current() ?? undefined : undefined)
+  display = d
+  b.onEvenHubEvent(onEvent)
+  render()
+})
