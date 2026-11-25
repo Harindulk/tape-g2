@@ -15,6 +15,7 @@ const SEED: Array<Omit<PaperPos, 'entry'> & { offset: number }> = [
 export class PaperExchange implements Exchange {
   readonly name = 'paper'
   private book: PaperPos[] | null = null
+  private liquidated: string[] = []
   /** Demo-only nudge (fraction) applied on top of the live price, per symbol. */
   readonly drift: Record<string, number> = {}
 
@@ -30,9 +31,32 @@ export class PaperExchange implements Exchange {
     return this.book
   }
 
+  /** Symbols liquidated since the last call (each reported once). */
+  takeLiquidations(): string[] {
+    const out = this.liquidated
+    this.liquidated = []
+    return out
+  }
+
+  /** Demo helper: fresh seed positions at the next mark, no drift. */
+  reset() {
+    this.book = null
+    this.liquidated = []
+    for (const k of Object.keys(this.drift)) delete this.drift[k]
+  }
+
   async positions(): Promise<Position[]> {
     const marks = await this.marks()
-    const book = await this.ensureBook(marks)
+    let book = await this.ensureBook(marks)
+    // A paper position whose mark crosses its liquidation price is closed, like the exchange would.
+    const gone = book.filter(p => {
+      const liq = estimateLiq(p.side, p.entry, p.leverage)
+      return p.side === 'Buy' ? marks[p.symbol] <= liq : marks[p.symbol] >= liq
+    })
+    if (gone.length) {
+      this.book = book = book.filter(p => !gone.includes(p))
+      this.liquidated.push(...gone.map(p => p.symbol))
+    }
     return book.map(p => {
       const mark = marks[p.symbol]
       const upnl = pnlOf(p.side, p.size, p.entry, mark)
@@ -78,8 +102,10 @@ export const bybitMarks: PriceFeed = async symbols => {
   const rows = await Promise.all(symbols.map(async s => {
     const r = await fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${s}`, { signal: AbortSignal.timeout(5000) })
     if (!r.ok) throw new Error(`Bybit tickers HTTP ${r.status}`)
-    const j = (await r.json()) as { result: { list: Array<{ markPrice: string }> } }
-    return [s, Number(j.result.list[0].markPrice)] as const
+    const j = (await r.json()) as { result?: { list?: Array<{ markPrice: string }> } }
+    const mark = Number(j.result?.list?.[0]?.markPrice)
+    if (!(mark > 0)) throw new Error(`Bybit sent no price for ${s}`)
+    return [s, mark] as const
   }))
   cache = { at: Date.now(), marks: Object.fromEntries(rows) }
   return cache.marks

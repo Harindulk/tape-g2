@@ -20,6 +20,7 @@ const handler = createApp({
   candles: s => bybitCandles(s, 30, exchange === paper ? undefined : 'https://api-testnet.bybit.com').then(c => exchange === paper ? c.map(v => v * (1 + (paper.drift[s] ?? 0))) : c),
   transcribe: sttReady() ? transcribe : undefined,
   nudge: exchange === paper ? (s, pct) => { paper.drift[s] = (paper.drift[s] ?? 0) + pct / 100 } : undefined,
+  reset: exchange === paper ? () => paper.reset() : undefined,
 })
 
 startWhisper()

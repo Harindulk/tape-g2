@@ -21,6 +21,8 @@ export interface Exchange {
   close(symbol: string, fraction: number): Promise<number>
   setStop(symbol: string, price: number): Promise<void>
   setTakeProfit(symbol: string, price: number): Promise<void>
+  /** Paper only: symbols force-closed since the last call. */
+  takeLiquidations?(): string[]
 }
 
 /** Percent move in price from mark to liq (always positive while not liquidated). */

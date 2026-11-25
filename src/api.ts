@@ -20,5 +20,6 @@ export const api = {
   voice: (pcm: Uint8Array) => j<Understood>('/api/voice', { method: 'POST', body: pcm as BodyInit }),
   ack: () => j<{ ok: true }>('/api/ack', post({})),
   nudge: (symbol: string, pct: number) => j<{ ok: true }>('/api/demo/nudge', post({ symbol, pct })),
+  reset: () => j<{ ok: true }>('/api/demo/reset', post({})),
   health: () => j<{ ok: boolean; exchange: string; stt: boolean }>('/api/health'),
 }

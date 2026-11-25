@@ -12,7 +12,7 @@ type View =
   | { kind: 'confirm'; command: Command; summary: string; heard?: string }
   | { kind: 'listening' }
   | { kind: 'thinking' }
-  | { kind: 'result'; msg: string; ok: boolean }
+  | { kind: 'result'; msg: string; ok: boolean; title?: string }
   | { kind: 'risk'; symbol: string }
   | { kind: 'alert'; alert: Alert }
 
@@ -33,6 +33,7 @@ const RISK_STEP = 1
 mountPhone({
   onCommandText: text => runText(text),
   onNudge: (s, p) => api.nudge(s, p).then(refresh),
+  onReset: () => api.reset().then(() => { seenRisk.clear(); idx = 0; back(); refresh() }),
   onSelect: i => { idx = i; phone.select(i); if (view.kind === 'card') render(); else back() },
 })
 
@@ -58,7 +59,7 @@ function render() {
     case 'confirm': return display.show(S.confirmScreen(view.summary, view.heard))
     case 'listening': return display.show(S.listeningScreen())
     case 'thinking': return display.show(S.thinkingScreen())
-    case 'result': return display.show(S.resultScreen(view.msg, view.ok))
+    case 'result': return display.show(S.resultScreen(view.msg, view.ok, view.title))
     case 'risk': {
       const r = state?.positions.find(x => x.symbol === (view as { symbol: string }).symbol)
       return r ? display.show(S.riskScreen(r)) : back()
@@ -79,7 +80,13 @@ async function refresh() {
   try {
     state = await api.state()
     lastOk = Date.now(); fetchError = null
+    idx = Math.max(0, Math.min(idx, state.positions.length - 1)) // positions can disappear (closed, liquidated)
     phone.state(state)
+    phone.select(idx)
+    for (const sym of state.liquidated) {
+      phone.log(`✗ ${sym.replace('USDT', '')} liquidated (paper)`)
+      if (['card', 'risk'].includes(view.kind)) showResult(`${sym.replace('USDT', '')} position was liquidated`, false, 6000, '▲ Liquidated')
+    }
     // Risk and alerts interrupt only the resting card, never a decision in progress.
     if (view.kind === 'card') {
       const r = state.positions.find(p => p.symbol === state!.risk)
@@ -110,9 +117,9 @@ async function execute(command: Command) {
   refresh()
 }
 
-function showResult(msg: string, ok: boolean) {
-  go({ kind: 'result', msg, ok })
-  resultTimer = window.setTimeout(back, RESULT_MS)
+function showResult(msg: string, ok: boolean, ms = RESULT_MS, title?: string) {
+  go({ kind: 'result', msg, ok, title })
+  resultTimer = window.setTimeout(back, ms)
 }
 
 async function understood(u: { text: string; command: Command; summary: string }) {

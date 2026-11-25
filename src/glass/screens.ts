@@ -38,9 +38,9 @@ export function confirmScreen(summary: string, heard?: string): Screen {
   return full([...top, `${summary}?`, '', 'tap  yes        2x tap  no'].join('\n'))
 }
 
-export function resultScreen(message: string, ok: boolean): Screen {
+export function resultScreen(message: string, ok: boolean, title?: string): Screen {
   // Server messages use a double space between the what and the money: put each on its own line.
-  return full([ok ? '● Done' : '○ Not done', '', ...message.split(/\s{2,}|\n/)].join('\n'))
+  return full([title ?? (ok ? '● Done' : '○ Not done'), '', ...message.split(/\s{2,}|\n/)].join('\n'))
 }
 
 export function riskScreen(p: PositionView): Screen {

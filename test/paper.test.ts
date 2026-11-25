@@ -46,3 +46,22 @@ describe('paper exchange', () => {
     expect(liqDistancePct({ mark: 100, liq: 105 })).toBeCloseTo(5)
   })
 })
+
+describe('paper liquidation', () => {
+  it('liquidates a position whose mark crosses its liq price and reports it once', async () => {
+    const px = { BTCUSDT: 60000, ETHUSDT: 3000, SOLUSDT: 150 }
+    const ex = new PaperExchange(async s => Object.fromEntries(s.map(k => [k, px[k as keyof typeof px]])))
+    await ex.positions()
+    px.SOLUSDT = 100 // far below a 12x long's liq
+    const ps = await ex.positions()
+    expect(ps.map(p => p.symbol)).toEqual(['BTCUSDT', 'ETHUSDT'])
+    expect(ex.takeLiquidations()).toEqual(['SOLUSDT'])
+    expect(ex.takeLiquidations()).toEqual([])
+  })
+  it('reset reseeds all three positions at the current mark', async () => {
+    const ex = new PaperExchange(feed)
+    await ex.close('BTCUSDT', 1)
+    ex.reset()
+    expect((await ex.positions())).toHaveLength(3)
+  })
+})

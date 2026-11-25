@@ -13,6 +13,7 @@ export interface State {
   alerts: Alert[]
   triggered: Alert[]
   risk: string | null // symbol whose liq distance is under RISK_PCT
+  liquidated: string[] // paper only: closed by liquidation since the last poll
   updated: number
 }
 
@@ -23,12 +24,14 @@ export interface Deps {
   transcribe?: (pcm: Uint8Array) => Promise<string>
   /** Demo-only hook, paper exchange only. */
   nudge?: (symbol: string, pct: number) => void
+  /** Demo-only hook, paper exchange only. */
+  reset?: () => void
 }
 
 const HISTORY = 30
 const SAMPLE_MS = 2000
 
-export function createApp({ exchange, transcribe, nudge, candles }: Deps) {
+export function createApp({ exchange, transcribe, nudge, reset, candles }: Deps) {
   const history: Record<string, number[]> = {}
   const lastSample: Record<string, number> = {}
   let alerts: Alert[] = []
@@ -58,7 +61,8 @@ export function createApp({ exchange, transcribe, nudge, candles }: Deps) {
     alerts = alerts.filter(a => !triggered.includes(a))
     const positions = ps.map(p => ({ ...p, liqPct: liqDistancePct(p), history: [...(history[p.symbol] ?? []), p.mark], actions: rankActions(p) }))
     const risky = positions.filter(p => p.liqPct < RISK_PCT).sort((a, b) => a.liqPct - b.liqPct)[0]
-    return { exchange: exchange.name, positions, alerts, triggered: [...triggered], risk: risky?.symbol ?? null, updated: now }
+    const liquidated = exchange.takeLiquidations?.() ?? []
+    return { exchange: exchange.name, positions, alerts, triggered: [...triggered], risk: risky?.symbol ?? null, liquidated, updated: now }
   }
 
   /** Human sentence for the confirm card, e.g. "Close 50% of BTC long". */
@@ -135,33 +139,60 @@ export function createApp({ exchange, transcribe, nudge, candles }: Deps) {
       if (req.method === 'GET' && url.pathname === '/api/health') return send(200, { ok: true, exchange: exchange.name, stt: Boolean(transcribe) })
       if (req.method === 'GET' && url.pathname === '/api/state') return send(200, await state())
       const body = req.method === 'POST' ? await readBody(req) : Buffer.alloc(0)
+      let json: Record<string, unknown> = {}
+      try { json = url.pathname === '/api/voice' ? {} : JSON.parse(body.toString() || '{}') } catch { if (req.method === 'POST' && url.pathname !== '/api/voice') return send(400, { error: 'Bad JSON' }) }
       if (req.method === 'POST' && url.pathname === '/api/parse') {
-        const { text } = JSON.parse(body.toString() || '{}') as { text?: string }
-        return send(200, await understand(String(text ?? '')))
+        return send(200, await understand(String(json.text ?? '').slice(0, 300)))
       }
       if (req.method === 'POST' && url.pathname === '/api/action') {
-        const { command } = JSON.parse(body.toString() || '{}') as { command?: Command }
-        if (!command) return send(400, { error: 'command required' })
-        return send(200, { result: await execute(command) })
+        if (!json.command) return send(400, { error: 'command required' })
+        return send(200, { result: await execute(validate(json.command)) })
       }
       if (req.method === 'POST' && url.pathname === '/api/ack') {
         triggered = []
         return send(200, { ok: true })
       }
       if (req.method === 'POST' && url.pathname === '/api/voice') {
-        if (!transcribe) return send(503, { error: 'Speech-to-text not set up' })
+        if (!transcribe) return send(503, { error: 'Voice is off: run scripts/get-model.sh' })
         if (body.length < 3200) return send(200, await understand(''))
-        return send(200, await understand(await transcribe(new Uint8Array(body))))
+        const heard = await transcribe(new Uint8Array(body))
+        console.log(`voice ${(body.length / 32000).toFixed(1)}s: "${heard}"`)
+        return send(200, await understand(heard))
       }
       if (req.method === 'POST' && url.pathname === '/api/demo/nudge' && nudge) {
-        const { symbol, pct } = JSON.parse(body.toString() || '{}') as { symbol: string; pct: number }
+        const { symbol, pct } = json as { symbol: unknown; pct: unknown }
+        if (typeof symbol !== 'string' || !/^[A-Z]{2,10}USDT$/.test(symbol) || typeof pct !== 'number' || !(Math.abs(pct) <= 20)) return send(422, { error: 'Bad nudge' })
         nudge(symbol, pct)
+        return send(200, { ok: true })
+      }
+      if (req.method === 'POST' && url.pathname === '/api/demo/reset' && reset) {
+        reset(); alerts = []; triggered = []
         return send(200, { ok: true })
       }
       send(404, { error: 'not found' })
     } catch (e) {
       send(422, { error: (e as Error).message })
     }
+  }
+}
+
+const pos = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0
+const sym = (s: unknown): s is string => typeof s === 'string' && /^[A-Z0-9]{2,20}USDT$/.test(s)
+
+/** Commands come from the client: re-check every field before anything reaches an exchange. */
+export function validate(raw: unknown): Command {
+  const c = raw as Record<string, unknown>
+  const bad = (why: string): never => { throw new Error(`Rejected: ${why}`) }
+  if (!c || typeof c !== 'object') bad('no command')
+  if (c.kind === 'unknown') bad(String(c.reason ?? "didn't catch that"))
+  if (!sym(c.symbol)) bad('symbol')
+  const symbol = c.symbol as string
+  switch (c.kind) {
+    case 'close': return pos(c.fraction) && c.fraction <= 1 ? { kind: 'close', symbol, fraction: c.fraction } : bad('fraction')
+    case 'stop': return c.price === 'breakeven' || pos(c.price) ? { kind: 'stop', symbol, price: c.price as number | 'breakeven' } : bad('price')
+    case 'tp': return pos(c.price) ? { kind: 'tp', symbol, price: c.price } : bad('price')
+    case 'alert': return pos(c.price) && (c.op === '<' || c.op === '>') ? { kind: 'alert', symbol, op: c.op, price: c.price } : bad('alert')
+    default: return bad('unknown action')
   }
 }
 

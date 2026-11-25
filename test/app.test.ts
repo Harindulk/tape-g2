@@ -68,3 +68,25 @@ describe('server', () => {
     prices.SOLUSDT = 150
   })
 })
+
+describe('input validation', () => {
+  const bad = [
+    { kind: 'close', symbol: 'BTCUSDT', fraction: 5 },
+    { kind: 'close', symbol: 'BTCUSDT', fraction: 0 },
+    { kind: 'stop', symbol: 'BTCUSDT', price: 'NaN' },
+    { kind: 'tp', symbol: 'BTCUSDT', price: -1 },
+    { kind: 'alert', symbol: 'BTCUSDT', op: '=', price: 1 },
+    { kind: 'close', symbol: 42, fraction: 0.5 },
+    { kind: 'open', symbol: 'BTCUSDT' },
+  ]
+  for (const c of bad) {
+    it(`rejects ${JSON.stringify(c)}`, async () => {
+      const r = await post('/api/action', { command: c })
+      expect(r.status).toBe(422)
+    })
+  }
+  it('rejects malformed JSON with 400', async () => {
+    const r = await fetch(base + '/api/action', { method: 'POST', body: '{nope' })
+    expect(r.status).toBe(400)
+  })
+})

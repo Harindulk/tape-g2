@@ -7,6 +7,7 @@ interface Hooks {
   onCommandText: (t: string) => void
   onNudge: (symbol: string, pct: number) => void
   onSelect: (index: number) => void
+  onReset: () => void
 }
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!
@@ -47,6 +48,7 @@ export function mountPhone(h: Hooks) {
           <button data-s="SOLUSDT" data-p="-3">SOL −3%</button>
           <button data-s="BTCUSDT" data-p="1">BTC +1%</button>
           <button data-s="ETHUSDT" data-p="2">ETH +2%</button>
+          <button data-reset>Reset account</button>
         </div>
       </section>
       <section aria-labelledby="log-h">
@@ -63,7 +65,8 @@ export function mountPhone(h: Hooks) {
   })
   $('#demo').addEventListener('click', e => {
     const b = (e.target as HTMLElement).closest('button')
-    if (b) h.onNudge(b.dataset.s!, Number(b.dataset.p))
+    if (b?.hasAttribute('data-reset')) h.onReset()
+    else if (b) h.onNudge(b.dataset.s!, Number(b.dataset.p))
   })
   $('#positions').addEventListener('click', e => {
     const li = (e.target as HTMLElement).closest<HTMLElement>('[data-i]')
