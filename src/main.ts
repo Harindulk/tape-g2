@@ -26,7 +26,9 @@ let fetchError: string | null = null
 let idx = 0
 let view: View = { kind: 'card' }
 let resultTimer = 0
-const dismissedRisk = new Set<string>()
+// symbol → liq distance when the trader last saw the warning; re-warn only if it gets 1 point worse.
+const seenRisk = new Map<string, number>()
+const RISK_STEP = 1
 
 mountPhone({
   onCommandText: text => runText(text),
@@ -65,6 +67,11 @@ function render() {
   }
 }
 
+function markSeen(symbol: string) {
+  const p = state?.positions.find(x => x.symbol === symbol)
+  if (p) seenRisk.set(symbol, p.liqPct)
+}
+
 function go(v: View) { view = v; clearTimeout(resultTimer); render() }
 function back() { go({ kind: 'card' }) }
 
@@ -75,12 +82,14 @@ async function refresh() {
     phone.state(state)
     // Risk and alerts interrupt only the resting card, never a decision in progress.
     if (view.kind === 'card') {
-      const risky = state.risk && !dismissedRisk.has(state.risk) ? state.risk : null
+      const r = state.positions.find(p => p.symbol === state!.risk)
+      const seen = r && seenRisk.get(r.symbol)
+      const risky = r && (seen === undefined || r.liqPct < seen - RISK_STEP) ? r.symbol : null
       if (state.triggered.length) return go({ kind: 'alert', alert: state.triggered[0] })
       if (risky) return go({ kind: 'risk', symbol: risky })
     }
-    // Forget a dismissal once that position is out of the danger zone.
-    for (const s of dismissedRisk) if (state.risk !== s) dismissedRisk.delete(s)
+    // Forget the warning once that position is out of the danger zone.
+    for (const s of seenRisk.keys()) if (state.risk !== s) seenRisk.delete(s)
   } catch (e) {
     fetchError = (e as Error).message
   }
@@ -161,7 +170,7 @@ function onEvent(e: EvenHubEvent) {
   if (t === E.DOUBLE_CLICK_EVENT) {
     if (view.kind === 'card') return void bridge?.shutDownPageContainer(1) // root: system exit dialog
     if (view.kind === 'listening') { listening = false; bridge?.audioControl(false) }
-    if (view.kind === 'risk') dismissedRisk.add(view.symbol)
+    if (view.kind === 'risk') markSeen(view.symbol)
     return back()
   }
   if (t === E.CLICK_EVENT) return tap()
@@ -171,7 +180,7 @@ function swipe(dir: 1 | -1) {
   const n = state?.positions.length ?? 0
   if (view.kind === 'card' && n) { idx = (idx + dir + n) % n; phone.select(idx); render() }
   else if (view.kind === 'actions') { const len = current()?.actions.length ?? 1; go({ kind: 'actions', sel: (view.sel + dir + len) % len }) }
-  else if (view.kind === 'risk') { dismissedRisk.add(view.symbol); back() }
+  else if (view.kind === 'risk') { markSeen(view.symbol); back() }
 }
 
 function tap() {
@@ -182,7 +191,7 @@ function tap() {
     case 'confirm': execute(view.command); return
     case 'risk': {
       const r = state?.positions.find(x => x.symbol === (view as { symbol: string }).symbol)
-      if (r) { idx = state!.positions.indexOf(r); go({ kind: 'actions', sel: 0 }) }
+      if (r) { markSeen(r.symbol); idx = state!.positions.indexOf(r); go({ kind: 'actions', sel: 0 }) }
       return
     }
     case 'alert': api.ack().then(refresh); back(); return

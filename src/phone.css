@@ -38,7 +38,7 @@ h2 { font-size: 14px; font-weight: 600; color: var(--muted); margin: 0 0 10px; }
 .mirror.card .head { left: 1.4cqw; top: 1cqw; }
 .mirror.card .body { left: 1.4cqw; top: 7.6cqw; }
 .mirror.card .foot { left: 0.4cqw; right: 0.4cqw; top: 35cqw; bottom: 0.4cqw; border: 1px solid #1d6b20; border-radius: 1cqw; padding: 1cqw; }
-.mirror .chart { position: absolute; left: 50%; top: 6.25cqw; width: 50%; height: 25%; filter: sepia(1) saturate(6) hue-rotate(60deg) brightness(1.1); mix-blend-mode: screen; }
+.mirror .chart { position: absolute; left: 50%; top: 6.25cqw; width: 50%; height: 50%; filter: sepia(1) saturate(6) hue-rotate(60deg) brightness(1.1); mix-blend-mode: screen; }
 
 .rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: var(--r); }
 .rows li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 14px; min-height: 44px; cursor: pointer; border-top: 1px solid var(--line); } /* taste-skill-ignore: row rules in a list are allowed on app screens */
