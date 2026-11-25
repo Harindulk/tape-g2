@@ -118,6 +118,14 @@ export const phone = {
       : '<li class="empty">No open positions.</li>'
   },
 
+  error(msg: string) {
+    const f = document.querySelector('#finding')
+    if (!f) return
+    f.textContent = "Can't reach the Tape server"
+    f.classList.add('risk')
+    $('#total').textContent = `${msg}. Is npm run server running? Retrying every 2 s.`
+  },
+
   log(line: string) {
     const log = document.querySelector('#log')
     if (!log) return

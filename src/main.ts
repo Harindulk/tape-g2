@@ -92,6 +92,7 @@ async function refresh() {
     for (const s of seenRisk.keys()) if (state.risk !== s) seenRisk.delete(s)
   } catch (e) {
     fetchError = (e as Error).message
+    phone.error(fetchError)
   }
   if (view.kind === 'card' || view.kind === 'risk') render()
 }
@@ -191,7 +192,12 @@ function tap() {
     case 'confirm': execute(view.command); return
     case 'risk': {
       const r = state?.positions.find(x => x.symbol === (view as { symbol: string }).symbol)
-      if (r) { markSeen(r.symbol); idx = state!.positions.indexOf(r); go({ kind: 'actions', sel: 0 }) }
+      if (r) {
+        markSeen(r.symbol)
+        idx = state!.positions.indexOf(r)
+        const a = r.actions[0]
+        go({ kind: 'confirm', command: a.command, summary: `${a.label} of ${r.symbol.replace('USDT', '')} ${r.side === 'Buy' ? 'long' : 'short'}` })
+      }
       return
     }
     case 'alert': api.ack().then(refresh); back(); return

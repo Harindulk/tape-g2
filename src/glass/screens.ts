@@ -34,11 +34,13 @@ export function actionScreen(p: PositionView, selected: number): Screen {
 }
 
 export function confirmScreen(summary: string, heard?: string): Screen {
-  return full([heard ? `Heard: "${heard.slice(0, 60)}"` : '', '', `${summary}?`, '', '', 'tap  yes        2x tap  no'].join('\n'))
+  const top = heard ? [`Heard: "${heard.slice(0, 60)}"`, ''] : []
+  return full([...top, `${summary}?`, '', 'tap  yes        2x tap  no'].join('\n'))
 }
 
 export function resultScreen(message: string, ok: boolean): Screen {
-  return full([ok ? 'DONE' : 'NOT DONE', '', message].join('\n'))
+  // Server messages use a double space between the what and the money: put each on its own line.
+  return full([ok ? '● Done' : '○ Not done', '', ...message.split(/\s{2,}|\n/)].join('\n'))
 }
 
 export function riskScreen(p: PositionView): Screen {
@@ -49,7 +51,7 @@ export function riskScreen(p: PositionView): Screen {
     `PnL ${money(p.upnl)}`,
     '',
     `tap  ${p.actions[0]?.label ?? 'Close 50%'}`,
-    'swipe  dismiss',
+    'swipe  not now',
   ].join('\n'))
 }
 
