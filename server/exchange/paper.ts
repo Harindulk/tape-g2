@@ -70,13 +70,25 @@ export class PaperExchange implements Exchange {
   }
 }
 
-/** Live mark prices from Bybit's public v5 API (no key). */
+let cache: { at: number; marks: Record<string, number> } = { at: 0, marks: {} }
+
+/** Live mark prices from Bybit's public v5 API (no key). Cached for 1 s; one small request per symbol. */
 export const bybitMarks: PriceFeed = async symbols => {
-  const r = await fetch('https://api.bybit.com/v5/market/tickers?category=linear')
-  if (!r.ok) throw new Error(`Bybit tickers HTTP ${r.status}`)
-  const j = (await r.json()) as { result: { list: Array<{ symbol: string; markPrice: string }> } }
-  const want = new Set(symbols)
-  const out: Record<string, number> = {}
-  for (const t of j.result.list) if (want.has(t.symbol)) out[t.symbol] = Number(t.markPrice)
-  return out
+  if (Date.now() - cache.at < 1000 && symbols.every(s => s in cache.marks)) return cache.marks
+  const rows = await Promise.all(symbols.map(async s => {
+    const r = await fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${s}`, { signal: AbortSignal.timeout(5000) })
+    if (!r.ok) throw new Error(`Bybit tickers HTTP ${r.status}`)
+    const j = (await r.json()) as { result: { list: Array<{ markPrice: string }> } }
+    return [s, Number(j.result.list[0].markPrice)] as const
+  }))
+  cache = { at: Date.now(), marks: Object.fromEntries(rows) }
+  return cache.marks
+}
+
+/** Last `n` one-minute closes from Bybit's public kline API (oldest first). */
+export async function bybitCandles(symbol: string, n = 30, base = 'https://api.bybit.com'): Promise<number[]> {
+  const r = await fetch(`${base}/v5/market/kline?category=linear&symbol=${symbol}&interval=1&limit=${n}`)
+  if (!r.ok) throw new Error(`Bybit kline HTTP ${r.status}`)
+  const j = (await r.json()) as { result: { list: string[][] } }
+  return j.result.list.map(k => Number(k[4])).reverse()
 }

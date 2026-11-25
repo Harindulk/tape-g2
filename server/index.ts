@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { PaperExchange, bybitMarks } from './exchange/paper'
+import { PaperExchange, bybitMarks, bybitCandles } from './exchange/paper'
 import { BybitExchange } from './exchange/bybit'
 import { createApp } from './app'
 import { transcribe, sttReady, startWhisper } from './stt'
@@ -13,6 +13,8 @@ const paper = new PaperExchange(bybitMarks)
 const exchange = key && secret ? new BybitExchange(key, secret) : paper
 const handler = createApp({
   exchange,
+  // Paper charts use live mainnet candles; testnet uses its own (different) prices.
+  candles: s => bybitCandles(s, 30, exchange === paper ? undefined : 'https://api-testnet.bybit.com').then(c => exchange === paper ? c.map(v => v * (1 + (paper.drift[s] ?? 0))) : c),
   transcribe: sttReady() ? transcribe : undefined,
   nudge: exchange === paper ? (s, pct) => { paper.drift[s] = (paper.drift[s] ?? 0) + pct / 100 } : undefined,
 })

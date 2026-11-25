@@ -18,6 +18,8 @@ export interface State {
 
 export interface Deps {
   exchange: Exchange
+  /** Recent 1-minute closes per symbol, oldest first (chart backfill). */
+  candles?: (symbol: string) => Promise<number[]>
   transcribe?: (pcm: Uint8Array) => Promise<string>
   /** Demo-only hook, paper exchange only. */
   nudge?: (symbol: string, pct: number) => void
@@ -26,7 +28,7 @@ export interface Deps {
 const HISTORY = 30
 const SAMPLE_MS = 2000
 
-export function createApp({ exchange, transcribe, nudge }: Deps) {
+export function createApp({ exchange, transcribe, nudge, candles }: Deps) {
   const history: Record<string, number[]> = {}
   const lastSample: Record<string, number> = {}
   let alerts: Alert[] = []
@@ -38,11 +40,14 @@ export function createApp({ exchange, transcribe, nudge }: Deps) {
     const ps = await exchange.positions()
     const now = Date.now()
     for (const p of ps) {
-      const h = (history[p.symbol] ??= [])
-      if (!h.length || now - (lastSample[p.symbol] ?? 0) >= SAMPLE_MS) {
-        h.push(p.mark); lastSample[p.symbol] = now
-        if (h.length > HISTORY) h.shift()
+      // History = last 30 one-minute closes (refreshed every 30 s) with the live mark as the last point.
+      if (candles && now - (lastSample[p.symbol] ?? 0) >= 30000) {
+        history[p.symbol] = await candles(p.symbol).catch(() => history[p.symbol] ?? [])
+        lastSample[p.symbol] = now
       }
+      const h = (history[p.symbol] ??= [])
+      if (!candles && now - (lastSample[p.symbol] ?? 0) >= SAMPLE_MS) { h.push(p.mark); lastSample[p.symbol] = now }
+      while (h.length > HISTORY) h.shift()
     }
     // Fire alerts against the current marks.
     const marks = Object.fromEntries(ps.map(p => [p.symbol, p.mark]))
@@ -51,7 +56,7 @@ export function createApp({ exchange, transcribe, nudge }: Deps) {
       if (m !== undefined && (a.op === '<' ? m <= a.price : m >= a.price)) triggered.push(a)
     }
     alerts = alerts.filter(a => !triggered.includes(a))
-    const positions = ps.map(p => ({ ...p, liqPct: liqDistancePct(p), history: [...(history[p.symbol] ?? [])], actions: rankActions(p) }))
+    const positions = ps.map(p => ({ ...p, liqPct: liqDistancePct(p), history: [...(history[p.symbol] ?? []), p.mark], actions: rankActions(p) }))
     const risky = positions.filter(p => p.liqPct < RISK_PCT).sort((a, b) => a.liqPct - b.liqPct)[0]
     return { exchange: exchange.name, positions, alerts, triggered: [...triggered], risk: risky?.symbol ?? null, updated: now }
   }
