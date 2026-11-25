@@ -1,11 +1,13 @@
 // Optional: when ANTHROPIC_API_KEY is set, Claude rewrites loose phrasing into one canonical
 // command that the rule parser then validates. Claude never executes anything itself.
-const KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = process.env.TAPE_LLM_MODEL ?? 'claude-haiku-5-5'
 
-export const llmEnabled = () => Boolean(KEY)
+const key = () => process.env.ANTHROPIC_API_KEY
+const model = () => process.env.TAPE_LLM_MODEL ?? 'claude-haiku-5-5'
+
+export const llmEnabled = () => Boolean(key())
 
 export async function canonicalise(text: string, open: string[]): Promise<string | null> {
+  const KEY = key()
   if (!KEY) return null
   const system = `You turn a trader's spoken phrase into ONE canonical command, or NONE.
 Open positions: ${open.join(', ') || 'none'}.
@@ -19,7 +21,7 @@ Reply with the command only. If unclear or not one of these, reply NONE.`
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, max_tokens: 40, system, messages: [{ role: 'user', content: text }] }),
+    body: JSON.stringify({ model: model(), max_tokens: 40, system, messages: [{ role: 'user', content: text }] }),
     signal: AbortSignal.timeout(6000),
   })
   if (!r.ok) return null

@@ -1,3 +1,6 @@
+// Optional local config (Bybit testnet keys, Anthropic key). Never committed.
+try { process.loadEnvFile(new URL('./.env', import.meta.url)) } catch { /* no .env: paper mode */ }
+
 import { createServer } from 'node:http'
 import { PaperExchange, bybitMarks, bybitCandles } from './exchange/paper'
 import { BybitExchange } from './exchange/bybit'
