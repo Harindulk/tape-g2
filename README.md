@@ -1,6 +1,8 @@
 # Tape
 
-Your open futures positions on Even Realities G2 glasses. One position at a time, how far it is from liquidation, and a one-tap way to cut risk without picking up your phone.
+One tap, and Tape picks the exit for this position: a breakeven stop when you're in profit with no stop, half off when liquidation is close, a take profit otherwise. Tap again and it's done on Bybit, from your Even Realities G2 glasses.
+
+Tape shows your open futures positions one at a time: P&L, a 30-minute chart and how far each one is from liquidation. You can also hold the temple and say what you want, and when the glasses app is closed, risk warnings reach you on Telegram.
 
 Built for Heads Up: Even Realities (Exchanges & Stocks track) on Bybit. It runs on the Bybit testnet, or in a paper mode that uses live Bybit prices and needs no keys at all.
 
@@ -20,7 +22,8 @@ Tape puts the answer in your line of sight and keeps the common actions to one o
 - A 30-minute price chart with your entry line, drawn from Bybit one-minute candles.
 - Swipe (on the glasses or the R1 ring) to move between positions.
 - If any position gets within 5% of its liquidation price, the screen switches to a risk warning, whatever position you were looking at.
-- Price alerts you set by voice show up the moment they trigger, as long as the app is open.
+- Price alerts you set by voice show up the moment they trigger.
+- When the glasses app is closed, the server sends the same warnings (liquidation risk, alerts, a paper liquidation) through a Telegram bot, at most once every 5 minutes per warning. It stays quiet while the glasses app is open, because the glasses already show it.
 
 ### Acting
 
@@ -113,13 +116,17 @@ npm run server          # now trades on Bybit testnet instead of paper
 
 Positions must be in one-way mode (Bybit's default).
 
+### Telegram warnings (optional)
+
+Create a bot with [@BotFather](https://t.me/BotFather), put `TELEGRAM_BOT_TOKEN=...` in `server/.env`, restart the server and send `/start` to your bot once. Tape finds your chat from that message. Without a token, the warnings are printed in the server log so you can still see them.
+
 ### On real G2 glasses
 
 Run the server on a machine your phone can reach, build the app with `VITE_TAPE_API=https://your-server npm run build`, add that origin to the `network` whitelist in `app.json`, and either load the dev server with `npx evenhub qr` or install the package from `npm run pack` (`tape.ehpk`).
 
 ### Tests
 
-`npm test` runs 40 tests: parser, playbook, paper exchange and liquidation, Bybit signing, server routes and input validation, and the glasses screen limits.
+`npm test` runs 46 tests: parser, playbook, paper exchange and liquidation, Bybit requests, server routes and input validation, the closed-app Telegram watcher, and the glasses screen limits.
 
 ## Safety
 
@@ -135,7 +142,7 @@ The Vite config and `index.html` skeleton come from Even Realities' official [`e
 
 ## What we'd ask the platforms for
 
-1. Even Hub: a way to show a short alert when the app isn't in the foreground. Liquidation warnings matter most when you're looking at something else.
+1. Even Hub: a way to show a short alert on the glasses when the app isn't in the foreground. Tape falls back to Telegram today, but a liquidation warning belongs in your line of sight.
 2. Even Hub: on-device speech to text for short commands, so voice apps don't each need a server.
 3. Even Hub: a larger font size for a single line, for one number you want to read from across a desk.
 4. Bybit: a "close N% of position" option on `/v5/order/create`, so clients don't have to read the lot size and round quantities themselves.
