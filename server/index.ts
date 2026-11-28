@@ -7,6 +7,7 @@ import { BybitExchange } from './exchange/bybit'
 import { createApp } from './app'
 import { transcribe, sttReady, startWhisper } from './stt'
 import { llmEnabled } from './llm'
+import { telegramNotifier } from './telegram'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const key = process.env.BYBIT_TESTNET_KEY
@@ -23,7 +24,10 @@ const handler = createApp({
   reset: exchange === paper ? () => paper.reset() : undefined,
 })
 
+const telegram = telegramNotifier()
+setInterval(() => handler.watch(telegram.notify).catch(e => console.log(`[watch] ${(e as Error).message}`)), 5000)
+
 startWhisper()
 createServer(handler).listen(PORT, () => {
-  console.log(`Tape server on http://localhost:${PORT}  exchange=${exchange.name}  stt=${sttReady() ? 'whisper.cpp' : 'off'}  llm=${llmEnabled() ? 'on' : 'off'}`)
+  console.log(`Tape server on http://localhost:${PORT}  exchange=${exchange.name}  stt=${sttReady() ? 'whisper.cpp' : 'off'}  llm=${llmEnabled() ? 'on' : 'off'}  telegram=${telegram.mode}`)
 })

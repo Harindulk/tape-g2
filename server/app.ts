@@ -29,6 +29,8 @@ export interface Deps {
 }
 
 const HISTORY = 30
+const CLIENT_GONE_MS = 10_000
+const COOLDOWN_MS = 5 * 60_000
 const SAMPLE_MS = 2000
 
 export function createApp({ exchange, transcribe, nudge, reset, candles }: Deps) {
@@ -38,6 +40,8 @@ export function createApp({ exchange, transcribe, nudge, reset, candles }: Deps)
   let triggered: Alert[] = []
   let nextId = 1
   let busy = false
+  let lastClientPoll = 0
+  const lastSent = new Map<string, number>()
 
   async function state(): Promise<State> {
     const ps = await exchange.positions()
@@ -126,7 +130,26 @@ export function createApp({ exchange, transcribe, nudge, reset, candles }: Deps)
     return { text, command, summary: await describe(command) }
   }
 
-  return async function handle(req: IncomingMessage, res: ServerResponse) {
+  /**
+   * Runs on a timer. While the glasses app is open (it polls every 2 s) the glasses show
+   * everything; once it's closed, risk, alerts and liquidations go out as Telegram messages.
+   */
+  async function watch(notify: (text: string) => Promise<void>, now = Date.now()) {
+    if (now - lastClientPoll < CLIENT_GONE_MS) return
+    const s = await state()
+    const out: Array<[string, string]> = []
+    const r = s.positions.find(p => p.symbol === s.risk)
+    if (r) out.push([`risk:${r.symbol}`, `▲ ${r.symbol.replace('USDT', '')} ${r.side === 'Buy' ? 'long' : 'short'} is ${r.liqPct.toFixed(1)}% from liquidation (mark ${fmt(r.mark)}, liq ${fmt(r.liq)}). Open Tape on your glasses: one tap to cut it.`])
+    for (const a of s.triggered) out.push([`alert:${a.id}`, `▲ Alert: ${a.symbol.replace('USDT', '')} ${a.op === '<' ? 'below' : 'above'} ${fmt(a.price)}.`])
+    for (const sym of s.liquidated) out.push([`liq:${sym}:${now}`, `${sym.replace('USDT', '')} position was liquidated.`])
+    for (const [key, text] of out) {
+      if (now - (lastSent.get(key) ?? -Infinity) < COOLDOWN_MS) continue
+      lastSent.set(key, now)
+      await notify(text)
+    }
+  }
+
+  const handle = async function handle(req: IncomingMessage, res: ServerResponse) {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', 'content-type')
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
@@ -137,7 +160,7 @@ export function createApp({ exchange, transcribe, nudge, reset, candles }: Deps)
     }
     try {
       if (req.method === 'GET' && url.pathname === '/api/health') return send(200, { ok: true, exchange: exchange.name, stt: Boolean(transcribe) })
-      if (req.method === 'GET' && url.pathname === '/api/state') return send(200, await state())
+      if (req.method === 'GET' && url.pathname === '/api/state') { lastClientPoll = Date.now(); return send(200, await state()) }
       const body = req.method === 'POST' ? await readBody(req) : Buffer.alloc(0)
       let json: Record<string, unknown> = {}
       try { json = url.pathname === '/api/voice' ? {} : JSON.parse(body.toString() || '{}') } catch { if (req.method === 'POST' && url.pathname !== '/api/voice') return send(400, { error: 'Bad JSON' }) }
@@ -174,6 +197,7 @@ export function createApp({ exchange, transcribe, nudge, reset, candles }: Deps)
       send(422, { error: (e as Error).message })
     }
   }
+  return Object.assign(handle, { watch })
 }
 
 const pos = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0
